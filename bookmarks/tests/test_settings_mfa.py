@@ -23,7 +23,7 @@ def current_code(user_mfa):
 @override_settings(PASSWORD_HASHERS=FAST_HASHERS)
 class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
     def setUp(self):
-        patcher = patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+        patcher = patch("bookmarks.services.mfa.timezone.now", return_value=FROZEN_NOW)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.user = self.get_or_create_test_user()

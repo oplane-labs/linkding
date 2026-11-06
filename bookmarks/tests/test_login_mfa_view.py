@@ -19,7 +19,7 @@ FROZEN_NOW = datetime(2026, 1, 1, 0, 0, 15, tzinfo=UTC)
 @override_settings(PASSWORD_HASHERS=FAST_HASHERS)
 class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
     def setUp(self):
-        patcher = patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+        patcher = patch("bookmarks.services.mfa.timezone.now", return_value=FROZEN_NOW)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.user = self.setup_user(name="test")

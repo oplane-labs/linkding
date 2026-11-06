@@ -12,6 +12,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_post_parameters
 
 from bookmarks.forms import GlobalSettingsForm, UserProfileForm
 from bookmarks.models import (
@@ -19,8 +20,9 @@ from bookmarks.models import (
     Bookmark,
     FeedToken,
     GlobalSettings,
+    UserMfa,
 )
-from bookmarks.services import exporter, importer, tasks
+from bookmarks.services import exporter, importer, mfa, tasks
 from bookmarks.type_defs import HttpRequest
 from bookmarks.utils import app_version
 from bookmarks.views import access
@@ -59,10 +61,24 @@ def general(request: HttpRequest, status=200, context_overrides=None):
             "success_message": success_message,
             "error_message": error_message,
             "version_info": version_info,
+            **_mfa_context(request),
             **context_overrides,
         },
         status=status,
     )
+
+
+def _mfa_context(request: HttpRequest):
+    # MFA only protects the password login, hide it when that is disabled
+    if django_settings.LD_DISABLE_LOGIN_FORM:
+        return {"show_mfa": False}
+
+    user_mfa = UserMfa.objects.filter(user=request.user).first()
+    context = {"show_mfa": True, "mfa_enabled": bool(user_mfa and user_mfa.enabled)}
+    if user_mfa and not user_mfa.enabled:
+        context["mfa_secret"] = user_mfa.secret
+        context["mfa_qr_code"] = mfa.qr_code_svg(request.user, user_mfa)
+    return context
 
 
 @login_required
@@ -237,6 +253,61 @@ def delete_api_token(request):
         )
 
     return HttpResponseRedirect(reverse("linkding:settings.integrations"))
+
+
+def _require_mfa_post(request: HttpRequest):
+    if request.method != "POST" or django_settings.LD_DISABLE_LOGIN_FORM:
+        raise PermissionDenied()
+
+
+@login_required
+def mfa_enable(request: HttpRequest):
+    _require_mfa_post(request)
+    mfa.start_enrollment(request.user)
+    return HttpResponseRedirect(reverse("linkding:settings.general"))
+
+
+@sensitive_post_parameters("code")
+@login_required
+def mfa_confirm(request: HttpRequest):
+    _require_mfa_post(request)
+    codes = mfa.confirm_enrollment(request.user, request.POST.get("code", ""))
+    if codes is None:
+        messages.error(
+            request,
+            "The code is not valid. Please try again.",
+            "settings_error_message",
+        )
+        return HttpResponseRedirect(reverse("linkding:settings.general"))
+
+    # Render directly instead of redirecting, so the plaintext recovery codes
+    # are not stored in the session for the next request
+    messages.success(
+        request, "Two-factor authentication enabled", "settings_success_message"
+    )
+    return general(request, context_overrides={"mfa_recovery_codes": codes})
+
+
+@sensitive_post_parameters("code")
+@login_required
+def mfa_disable(request: HttpRequest):
+    _require_mfa_post(request)
+    result = mfa.disable(request.user, request.POST.get("code", ""))
+    if result == mfa.VerifyResult.MISSING:
+        return HttpResponseRedirect(reverse("linkding:settings.general"))
+    if result != mfa.VerifyResult.OK:
+        message = (
+            "Too many failed attempts. Try again later."
+            if result == mfa.VerifyResult.LOCKED
+            else "The code is not valid. Please try again."
+        )
+        messages.error(request, message, "settings_error_message")
+        return HttpResponseRedirect(reverse("linkding:settings.general"))
+
+    messages.success(
+        request, "Two-factor authentication disabled", "settings_success_message"
+    )
+    return HttpResponseRedirect(reverse("linkding:settings.general"))
 
 
 @login_required

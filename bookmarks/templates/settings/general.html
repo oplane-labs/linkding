@@ -241,6 +241,85 @@ reddit.com/r/Music music reddit</pre>
         </div>
       </form>
     </section>
+    {# Two-factor authentication section #}
+    {% if show_mfa %}
+      <section aria-labelledby="mfa-heading">
+        <h2 id="mfa-heading">Two-factor authentication</h2>
+        {% if mfa_recovery_codes %}
+          <p>
+            Save these recovery codes in a safe place. Each code can be used once to log in if you lose access to your
+            authenticator app. They will not be shown again.
+          </p>
+          <pre class="monospace">{% for code in mfa_recovery_codes %}{{ code }}
+{% endfor %}</pre>
+        {% endif %}
+        {% if mfa_enabled %}
+          <p>Two-factor authentication is enabled.</p>
+          <form action="{% url 'linkding:settings.mfa.disable' %}"
+                method="post"
+                data-turbo="false">
+            {% csrf_token %}
+            <div class="form-group">
+              <label class="form-label" for="mfa-disable-code">Code</label>
+              <input class="form-input width-25 width-sm-100"
+                     type="text"
+                     id="mfa-disable-code"
+                     name="code"
+                     autocomplete="one-time-code"
+                     required
+                     aria-describedby="mfa-disable-code-help">
+              <div id="mfa-disable-code-help" class="form-input-hint">
+                Enter a code from your authenticator app or a recovery code to disable two-factor authentication.
+              </div>
+            </div>
+            <input type="submit" value="Disable" class="btn btn-error">
+          </form>
+        {% elif mfa_secret %}
+          <p>
+            Scan the QR code with your authenticator app, or enter the secret manually. Then enter the code from the app
+            to confirm.
+          </p>
+          <div class="mb-2">{{ mfa_qr_code|safe }}</div>
+          <p>
+            Secret: <code>{{ mfa_secret }}</code>
+          </p>
+          <form action="{% url 'linkding:settings.mfa.confirm' %}"
+                method="post"
+                data-turbo="false">
+            {% csrf_token %}
+            <div class="form-group">
+              <label class="form-label" for="mfa-confirm-code">Code</label>
+              <input class="form-input width-25 width-sm-100"
+                     type="text"
+                     id="mfa-confirm-code"
+                     name="code"
+                     inputmode="numeric"
+                     autocomplete="one-time-code"
+                     required>
+            </div>
+            <input type="submit" value="Confirm" class="btn btn-primary">
+          </form>
+          <form action="{% url 'linkding:settings.mfa.disable' %}"
+                method="post"
+                data-turbo="false"
+                class="mt-2">
+            {% csrf_token %}
+            <input type="submit" value="Cancel" class="btn">
+          </form>
+        {% else %}
+          <p>
+            Require a code from an authenticator app in addition to your password when logging in.
+            Enabling two-factor authentication does not end existing sessions or revoke API tokens.
+          </p>
+          <form action="{% url 'linkding:settings.mfa.enable' %}"
+                method="post"
+                data-turbo="false">
+            {% csrf_token %}
+            <input type="submit" value="Enable" class="btn btn-primary">
+          </form>
+        {% endif %}
+      </section>
+    {% endif %}
     {# Global settings section #}
     {% if global_settings_form %}
       <section aria-labelledby="global-settings-heading">

@@ -84,6 +84,13 @@ urlpatterns = [
         settings_views.delete_api_token,
         name="settings.integrations.delete_api_token",
     ),
+    path("settings/mfa/enable", settings_views.mfa_enable, name="settings.mfa.enable"),
+    path(
+        "settings/mfa/confirm", settings_views.mfa_confirm, name="settings.mfa.confirm"
+    ),
+    path(
+        "settings/mfa/disable", settings_views.mfa_disable, name="settings.mfa.disable"
+    ),
     path("settings/import", settings_views.bookmark_import, name="settings.import"),
     path("settings/export", settings_views.bookmark_export, name="settings.export"),
     # Toasts
@@ -133,6 +140,7 @@ urlpatterns += [
         linkding_auth_views.LinkdingLoginView.as_view(redirect_authenticated_user=True),
         name="login",
     ),
+    path("login/mfa/", linkding_auth_views.login_mfa, name="login_mfa"),
     path("logout/", django_auth_views.LogoutView.as_view(), name="logout"),
     path(
         "change-password/",

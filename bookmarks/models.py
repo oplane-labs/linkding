@@ -538,6 +538,29 @@ class ApiToken(models.Model):
         return f"{self.name} ({self.user.username})"
 
 
+class UserMfa(models.Model):
+    user = models.OneToOneField(User, related_name="mfa", on_delete=models.CASCADE)
+    # Base32 TOTP secret, stored in plaintext like ApiToken.key
+    secret = models.CharField(max_length=32)
+    # Only enforced after the user confirmed enrollment with a valid code
+    enabled = models.BooleanField(default=False)
+    # Last accepted TOTP time step, a code is only accepted for a later step
+    last_used_step = models.BigIntegerField(default=0)
+    # Consecutive failed attempts across all sessions
+    failed_attempts = models.IntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+
+class MfaRecoveryCode(models.Model):
+    user = models.ForeignKey(
+        User, related_name="mfa_recovery_codes", on_delete=models.CASCADE
+    )
+    code_hash = models.CharField(max_length=128)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+
 class GlobalSettings(models.Model):
     LANDING_PAGE_LOGIN = "login"
     LANDING_PAGE_SHARED_BOOKMARKS = "shared_bookmarks"

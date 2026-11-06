@@ -1,6 +1,8 @@
+import pyotp
 from django.test import TestCase, override_settings
 from django.urls import include, path
 
+from bookmarks.models import UserMfa
 from bookmarks.tests.helpers import BookmarkFactoryMixin, HtmlTestMixin
 from bookmarks.urls import urlpatterns as base_patterns
 
@@ -70,6 +72,29 @@ class LoginViewTestCase(TestCase, BookmarkFactoryMixin, HtmlTestMixin):
         self.assertIsNone(username_input)
         self.assertIsNone(password_input)
         self.assertIsNone(submit_button)
+
+    @override_settings(LD_DISABLE_LOGIN_FORM=True)
+    def test_should_reject_password_login_when_disabled(self):
+        user = self.setup_user(name="test")
+        user.set_password("test")
+        user.save()
+
+        response = self.client.post("/login/", {"username": "test", "password": "test"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNone(self.client.session.get("_auth_user_id"))
+
+    @override_settings(LD_ENABLE_OIDC=True)
+    def test_should_require_mfa_for_password_login_when_oidc_enabled(self):
+        user = self.setup_user(name="test")
+        user.set_password("test")
+        user.save()
+        UserMfa.objects.create(user=user, secret=pyotp.random_base32(), enabled=True)
+
+        response = self.client.post("/login/", {"username": "test", "password": "test"})
+
+        self.assertRedirects(response, "/login/mfa/", fetch_redirect_response=False)
+        self.assertIsNone(self.client.session.get("_auth_user_id"))
 
     @override_settings(LD_DISABLE_LOGIN_FORM=True, LD_ENABLE_OIDC=True)
     def test_should_only_show_oidc_login_when_login_disabled_and_oidc_enabled(self):

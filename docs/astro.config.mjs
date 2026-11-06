@@ -33,6 +33,7 @@ export default defineConfig({
             { label: "Backups", slug: "backups" },
             { label: "Search", slug: "search" },
             { label: "Archiving", slug: "archiving" },
+            { label: "Two-Factor Authentication", slug: "two-factor-authentication" },
             { label: "Auto Tagging", slug: "auto-tagging" },
             { label: "Keyboard Shortcuts", slug: "shortcuts" },
             { label: "How To", slug: "how-to" },

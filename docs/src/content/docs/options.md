@@ -253,6 +253,8 @@ Values: `True`, `False` | Default = `False`
 Disables the login form on the login page.
 This is useful when you want to enforce authentication through OIDC only.
 When enabled, users will not be able to log in using their username and password, and only the "Login with OIDC" button will be shown on the login page.
+The server rejects username and password logins with HTTP status 403, also when they do not come from the login page.
+The settings for [two-factor authentication](/two-factor-authentication) are hidden, because they only apply to the login form.
 
 ### `LD_SESSION_COOKIE_AGE`
 

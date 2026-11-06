@@ -12,6 +12,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_post_parameters
 
 from bookmarks.forms import GlobalSettingsForm, UserProfileForm
 from bookmarks.models import (
@@ -74,7 +75,6 @@ def _mfa_context(request: HttpRequest):
 
     user_mfa = UserMfa.objects.filter(user=request.user).first()
     context = {"show_mfa": True, "mfa_enabled": bool(user_mfa and user_mfa.enabled)}
-    # Only show the secret while enrollment is not confirmed
     if user_mfa and not user_mfa.enabled:
         context["mfa_secret"] = user_mfa.secret
         context["mfa_qr_code"] = mfa.qr_code_svg(request.user, user_mfa)
@@ -267,6 +267,7 @@ def mfa_enable(request: HttpRequest):
     return HttpResponseRedirect(reverse("linkding:settings.general"))
 
 
+@sensitive_post_parameters("code")
 @login_required
 def mfa_confirm(request: HttpRequest):
     _require_mfa_post(request)
@@ -279,34 +280,30 @@ def mfa_confirm(request: HttpRequest):
         )
         return HttpResponseRedirect(reverse("linkding:settings.general"))
 
-    # Render directly instead of redirecting, so the recovery codes are shown
-    # once and never stored in plaintext
+    # Render directly instead of redirecting, so the plaintext recovery codes
+    # are not stored in the session for the next request
     messages.success(
         request, "Two-factor authentication enabled", "settings_success_message"
     )
     return general(request, context_overrides={"mfa_recovery_codes": codes})
 
 
+@sensitive_post_parameters("code")
 @login_required
 def mfa_disable(request: HttpRequest):
     _require_mfa_post(request)
-    user_mfa = UserMfa.objects.filter(user=request.user).first()
-    if user_mfa is None:
+    result = mfa.disable(request.user, request.POST.get("code", ""))
+    if result == mfa.VerifyResult.MISSING:
+        return HttpResponseRedirect(reverse("linkding:settings.general"))
+    if result != mfa.VerifyResult.OK:
+        message = (
+            "Too many failed attempts. Try again later."
+            if result == mfa.VerifyResult.LOCKED
+            else "The code is not valid. Please try again."
+        )
+        messages.error(request, message, "settings_error_message")
         return HttpResponseRedirect(reverse("linkding:settings.general"))
 
-    # An unconfirmed enrollment does not protect anything, cancel it without a code
-    if user_mfa.enabled:
-        result = mfa.verify(request.user, request.POST.get("code", ""))
-        if result != mfa.VerifyResult.OK:
-            message = (
-                "Too many failed attempts. Try again later."
-                if result == mfa.VerifyResult.LOCKED
-                else "The code is not valid. Please try again."
-            )
-            messages.error(request, message, "settings_error_message")
-            return HttpResponseRedirect(reverse("linkding:settings.general"))
-
-    mfa.remove(request.user)
     messages.success(
         request, "Two-factor authentication disabled", "settings_success_message"
     )

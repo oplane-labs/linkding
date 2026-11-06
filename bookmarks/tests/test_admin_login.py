@@ -38,6 +38,13 @@ class AdminLoginTestCase(TestCase, BookmarkFactoryMixin):
 
         self.assertEqual(403, response.status_code)
 
+    def test_staff_user_on_login_url_redirects_to_admin_index(self):
+        self.client.force_login(self.setup_superuser())
+
+        response = self.client.get("/admin/login/?next=/admin/")
+
+        self.assertRedirects(response, "/admin/", fetch_redirect_response=False)
+
     def test_staff_user_can_access_admin(self):
         self.client.force_login(self.setup_superuser())
 

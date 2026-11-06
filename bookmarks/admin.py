@@ -10,6 +10,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, QuerySet
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.translation import gettext, ngettext
@@ -94,6 +95,8 @@ class LinkdingAdminSite(AdminSite):
 
     def login(self, request, extra_context=None):
         # The admin login form would bypass MFA, use the linkding login instead
+        if self.has_permission(request):
+            return HttpResponseRedirect(reverse("admin:index", current_app=self.name))
         if request.user.is_authenticated:
             # Logged in, but not staff. Redirecting to the linkding login would
             # loop, because it sends authenticated users back to the admin.

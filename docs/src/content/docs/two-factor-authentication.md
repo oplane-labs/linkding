@@ -25,7 +25,7 @@ Go to *Settings > General*, enter a code from your authenticator app or a recove
 
 ## Failed attempts
 
-After 5 failed codes, linkding locks the code step for that user for 15 minutes. Failed attempts on the login page and on the disable form count together, also across different browsers. Failed codes return HTTP status 401, the same as a wrong password, so tools like Fail2Ban can detect them.
+After 5 failed codes, linkding locks the code step for that user for 15 minutes. Failed attempts on the login page and on the disable form count together, also across different browsers. Failed codes on the login page return HTTP status 401, the same as a wrong password, so tools like Fail2Ban can detect them.
 
 ## Reset two-factor authentication for a user
 

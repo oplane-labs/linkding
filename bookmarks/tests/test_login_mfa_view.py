@@ -1,5 +1,5 @@
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pyotp
@@ -12,11 +12,16 @@ from bookmarks.services import mfa
 from bookmarks.tests.helpers import BookmarkFactoryMixin
 
 FAST_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+# 15 seconds into a TOTP step, so tests do not cross a step boundary
+FROZEN_NOW = datetime(2026, 1, 1, 0, 0, 15, tzinfo=UTC)
 
 
 @override_settings(PASSWORD_HASHERS=FAST_HASHERS)
 class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
     def setUp(self):
+        patcher = patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.user = self.setup_user(name="test")
         self.user.set_password("test")
         self.user.save()
@@ -97,7 +102,9 @@ class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
     def test_invalid_code_returns_401(self):
         self.login_password()
 
-        response = self.submit_code("000000" if self.code() != "000000" else "111111")
+        accepted = {self.code(offset) for offset in (-1, 0, 1)}
+        invalid = next(c for c in ("000000", "111111", "222222") if c not in accepted)
+        response = self.submit_code(invalid)
 
         self.assertEqual(401, response.status_code)
         self.assertNotLoggedIn()
@@ -161,6 +168,36 @@ class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
         )
         self.assertNotLoggedIn()
 
+    def test_pending_login_is_rejected_after_password_change(self):
+        self.login_password()
+        self.user.set_password("changed")
+        self.user.save()
+
+        response = self.submit_code(self.code())
+
+        self.assertRedirects(
+            response, settings.LOGIN_URL, fetch_redirect_response=False
+        )
+        self.assertNotLoggedIn()
+        self.assertNotIn("mfa_pending_user_id", self.client.session)
+
+    def test_mfa_reset_during_verification_redirects_to_login(self):
+        self.login_password()
+        verify = mfa.verify
+
+        def reset_then_verify(user, code):
+            mfa.remove(user)
+            return verify(user, code)
+
+        with patch("bookmarks.views.auth.mfa.verify", side_effect=reset_then_verify):
+            response = self.submit_code(self.code())
+
+        self.assertRedirects(
+            response, settings.LOGIN_URL, fetch_redirect_response=False
+        )
+        self.assertNotLoggedIn()
+        self.assertNotIn("mfa_pending_user_id", self.client.session)
+
     def test_attempt_limit_locks_user(self):
         self.login_password()
         for _ in range(mfa.MAX_FAILED_ATTEMPTS - 1):
@@ -184,7 +221,6 @@ class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
 
         self.assertContains(response, "Too many failed attempts", status_code=401)
         self.assertNotLoggedIn()
-        # The valid code was not consumed
         self.user_mfa.refresh_from_db()
         self.assertEqual(0, self.user_mfa.last_used_step)
 
@@ -202,7 +238,6 @@ class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
         for _ in range(mfa.MAX_FAILED_ATTEMPTS - 1):
             self.submit_code("ABCDE-FGHIJ")
 
-        # A new session with the correct password does not reset the counter
         self.client.logout()
         self.login_password()
         response = self.submit_code("ABCDE-FGHIJ")
@@ -233,7 +268,6 @@ class LoginMfaViewTestCase(TestCase, BookmarkFactoryMixin):
         self.assertEqual(401, response.status_code)
         self.assertNotLoggedIn()
 
-        # Other codes still work
         self.submit_code(codes[1])
         self.assertLoggedIn()
 

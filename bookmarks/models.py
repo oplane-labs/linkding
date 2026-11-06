@@ -540,7 +540,8 @@ class ApiToken(models.Model):
 
 class UserMfa(models.Model):
     user = models.OneToOneField(User, related_name="mfa", on_delete=models.CASCADE)
-    # Base32 TOTP secret, stored in plaintext like ApiToken.key
+    # Base32 TOTP secret. Stored in plaintext because generating codes needs
+    # the original secret, a database leak exposes it.
     secret = models.CharField(max_length=32)
     # Only enforced after the user confirmed enrollment with a valid code
     enabled = models.BooleanField(default=False)

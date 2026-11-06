@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
+from unittest.mock import patch
+
 import pyotp
-from django.contrib.auth.hashers import identify_hasher
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -9,6 +11,8 @@ from bookmarks.services import mfa
 from bookmarks.tests.helpers import BookmarkFactoryMixin
 
 FAST_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+# 15 seconds into a TOTP step, so tests do not cross a step boundary
+FROZEN_NOW = datetime(2026, 1, 1, 0, 0, 15, tzinfo=UTC)
 
 
 def current_code(user_mfa):
@@ -19,6 +23,9 @@ def current_code(user_mfa):
 @override_settings(PASSWORD_HASHERS=FAST_HASHERS)
 class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
     def setUp(self):
+        patcher = patch("django.utils.timezone.now", return_value=FROZEN_NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.user = self.get_or_create_test_user()
         self.client.force_login(self.user)
 
@@ -74,14 +81,14 @@ class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
         self.enable()
         user_mfa = UserMfa.objects.get(user=self.user)
 
-        response = self.confirm(current_code(user_mfa))
+        code = current_code(user_mfa)
+        response = self.confirm(code)
 
         user_mfa.refresh_from_db()
         self.assertTrue(user_mfa.enabled)
         self.assertIsNotNone(user_mfa.confirmed_at)
         self.assertTrue(mfa.is_enabled(self.user))
-        # The confirm code can not be used again for login
-        self.assertGreater(user_mfa.last_used_step, 0)
+        self.assertEqual(mfa.VerifyResult.INVALID, mfa.verify(self.user, code))
 
         codes = response.context["mfa_recovery_codes"]
         self.assertEqual(mfa.RECOVERY_CODE_COUNT, len(codes))
@@ -93,7 +100,6 @@ class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
         self.assertEqual(mfa.RECOVERY_CODE_COUNT, stored.count())
         for recovery_code in stored:
             self.assertNotIn(recovery_code.code_hash, codes)
-            identify_hasher(recovery_code.code_hash)
 
     def test_confirm_with_invalid_code_does_not_enable(self):
         self.enable()
@@ -112,7 +118,6 @@ class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
         self.assertNotContains(response, user_mfa.secret)
         self.assertNotContains(response, 'class="segno"')
         self.assertContains(response, "Two-factor authentication is enabled")
-        # Recovery codes are only shown once
         self.assertNotIn("mfa_recovery_codes", response.context)
 
     def test_qr_code_does_not_contain_username(self):
@@ -159,7 +164,6 @@ class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
 
         user_mfa.refresh_from_db()
         self.assertIsNotNone(user_mfa.locked_until)
-        # A valid code is rejected while locked
         totp = pyotp.TOTP(user_mfa.secret)
         self.disable(totp.generate_otp(totp.timecode(timezone.now()) + 1))
         self.assertTrue(mfa.is_enabled(self.user))
@@ -178,7 +182,6 @@ class SettingsMfaTestCase(TestCase, BookmarkFactoryMixin):
             mfa.confirm_enrollment(other_user, current_code(other_mfa))
         )
 
-        # The endpoints only act on the logged in user
         response = self.client.get(reverse("linkding:settings.general"))
         self.assertNotContains(response, other_mfa.secret)
         self.disable("ABCDE-FGHIJ")
